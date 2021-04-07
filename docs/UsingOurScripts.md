@@ -23,8 +23,10 @@ This file contains the default constants and paths used in the build scripts for
     "jenkinsDetails"         : {
         // The base URL of the server, usually this is where you would end up if you opened your server from a webpage
         "rootUrl"            : "https://ci.adoptopenjdk.net",
-        // Jenkins directory where jobs will be generated and run
-        "rootDirectory"      : "build-scripts"
+        // Jenkins directory where the pipeline and downstream jobs will be generated and run
+        "rootDirectory"      : "build-scripts",
+        // Jenkins directory where the pipeline and downstream generators will be generated and run
+        "generatorDirectory" : "build-scripts/utils/generators"
     },
     // Jenkins job dsl template paths (relative to this repository root)
     "templateDirectories"    : {
@@ -33,7 +35,12 @@ This file contains the default constants and paths used in the build scripts for
         // Upstream job template (e.g. openjdk8-pipeline)
         "upstream"           : "pipelines/jobs/pipeline_job_template.groovy",
         // Weekly job template (e.g. weekly-openjdk8-pipeline)
-        "weekly"             : "pipelines/jobs/weekly_release_pipeline_job_template.groovy"
+        "weekly"             : "pipelines/jobs/weekly_release_pipeline_job_template.groovy",
+        // Map of the upstream and downstream generator template paths respectively
+        "generators"         : {
+            "downstream"     : "pipelines/build/templates/downstream_generator_template.groovy",
+            "upstream"       : "pipelines/build/templates/pipeline_generator_template.groovy"
+        }
     },
     // Job configuration file paths (relative to this repository root)
     "configDirectories"      : {
@@ -52,19 +59,24 @@ This file contains the default constants and paths used in the build scripts for
         "weekly"             : "pipelines/build/common/weekly_release_pipeline.groovy",
         // Downstream script file containing the 1st script that is executed by the jdkx-platform-arch-variant jobs.
         "downstream"         : "pipelines/build/common/kick_off_build.groovy",
-        // Base script file containing the 2nd script that is executed by the pipeline_jobs_generator_jdkxx jobs
-        "regeneration"       : "pipelines/build/common/config_regeneration.groovy",
         // Base PR tester file script file containing the 2nd script that is executed by the pipeline_jobs_generator_jdkxx jobs
         "tester"             : "pipelines/build/prTester/pr_test_pipeline.groovy",
         // Shell script that builds the adopt machine farm, pulling in platform configs and setting Boot JDK roots. Executed by the openjdk_build_pipeline.groovy
-        "buildfarm"          : "build-farm/make-adopt-build-farm.sh"
+        "buildfarm"          : "build-farm/make-adopt-build-farm.sh",
+        // Map of initial scripts used by the upstream and downstream generators respectively
+        "generators"         : {
+            "downstream"     : "pipelines/build/generation/build_job_generator.groovy",
+            "upstream"       : "pipelines/build/generation/build_pipeline_generator.groovy"
+        }
     },
     // Job base file (the main file which is called after the 1st setup script file) paths (relative to this repository root)
     "baseFileDirectories"    : {
         // Upstream pipeline file script containing the 2nd script that is executed by the openjdkx-pipeline jobs
         "upstream"           : "pipelines/build/common/build_base_file.groovy",
         // Upstream pipeline file script containing the 2nd script that is executed by the jdkx-platform-arch-variant jobs
-        "downstream"         : "pipelines/build/common/openjdk_build_pipeline.groovy"
+        "downstream"         : "pipelines/build/common/openjdk_build_pipeline.groovy",
+        // Downstream generator script containing the 2nd script that is executed by the pipeline_jobs_generator_jdkxx jobs
+        "generation"       : "pipelines/build/generation/config_generation.groovy"
     },
     // Test suite and inclusion details
     "testDetails"            : {
@@ -137,8 +149,8 @@ Once it has been approved and merged, update your scripts and/or jenkins jobs to
 
 ## Starting from scratch
 
-1. Create a (preferably) public repository with whatever scripts/configs you have altered. You don't need to place them in the same place as where Adopt's ones are, but they should have the same name. Currently, the list of supported files (replacing `x` with the JDK version number you want to alter, `(u)` is optional) you can modify are:
-    - [pipelines/build/regeneration/build_pipeline_generator.groovy](pipelines/build/regeneration/build_pipeline_generator.groovy) - Main upstream generator files. This is what the [build-pipeline-generator jenkins job](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/build-pipeline-generator/) executes on build, generating the [upstream jobs](https://ci.adoptopenjdk.net/job/build-scripts/).
+1. Create a (preferably) public repository with whatever scripts/configs you have altered. You don't need to place them in the same place as where Adopt's ones are, but they should have the same name. Currently, the list of supported files (replacing `x` with the JDK version number you want to alter, `(u)` is optional) you can modify are below (but may include further entry's expanded over time):
+    - [pipelines/build/generation/build_pipeline_generator.groovy](pipelines/build/generation/build_pipeline_generator.groovy) - Main upstream generator files. This is what the [build-pipeline-generator jenkins job](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/build-pipeline-generator/) executes on build, generating the [upstream jobs](https://ci.adoptopenjdk.net/job/build-scripts/).
     - [pipelines/jobs/pipeline_job_template.groovy](pipelines/jobs/pipeline_job_template.groovy) - Upstream jobs dsl. This is the dsl job framework of the [openjdkxx-pipeline downstream jobs](https://ci.adoptopenjdk.net/job/build-scripts).
     - [pipelines/jobs/weekly_release_pipeline_job_template.groovy](pipelines/jobs/weekly_release_pipeline_job_template.groovy) - Upstream jobs dsl. This is the dsl job framework of the [weekly-openjdkxx-pipeline downstream jobs](https://ci.adoptopenjdk.net/job/build-scripts).
     - [pipelines/build/openjdkx_pipeline.groovy](pipelines/build/openjdk8_pipeline.groovy) - Main upstream script files. These are what the [openjdkx-pipeline jenkins jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/openjdk8-pipeline/) execute on build.
@@ -148,9 +160,9 @@ Once it has been approved and merged, update your scripts and/or jenkins jobs to
     - [pipelines/jobs/configurations/jdkx(u)_pipeline_config.groovy](pipelines/jobs/configurations/jdk8u_pipeline_config.groovy) - Downstream build config files, docs for this are [in progress](https://github.com/AdoptOpenJDK/openjdk-build/issues/2129).
     - [pipelines/build/common/kick_off_build.groovy](pipelines/build/common/kick_off_build.groovy) - Main downstream scripts file. These are what the [jdkx(u)-os-arch-variant jenkins jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/jobs/job/jdk8u/) execute on build.
     - [pipelines/build/common/openjdk_build_pipeline.groovy](pipelines/build/common/openjdk_build_pipeline.groovy) - Base downstream script file. This contains most of the functionality for Adopt's downstream jobs (tests, installers, bash scripts, etc).
-    - [pipelines/build/regeneration/jdkx_regeneration_pipeline.groovy](pipelines/build/regeneration/jdk8_regeneration_pipeline.groovy) - Main downstream generator files.
-    These are what the [pipeline_jobs_generator_jdk8u jenkins jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/pipeline_jobs_generator_jdk8u/) execute on build, generating the [downstream jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/jobs/) via `pipelines/build/common/config_regeneration.groovy` (see below).
-    - [pipelines/build/common/config_regeneration.groovy](pipelines/build/common/config_regeneration.groovy) - Base downstream script file. These are what the [pipeline_jobs_generator_jdk8u jenkins jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/pipeline_jobs_generator_jdk8u/) execute after `jdkx_regeneration_pipeline.groovy`, calling the dsl template `pipelines/build/common/create_job_from_template.groovy`.
+    - [pipelines/build/generation/jdkx_generation_pipeline.groovy](pipelines/build/generation/jdk8_generation_pipeline.groovy) - Main downstream generator files.
+    These are what the [pipeline_jobs_generator_jdk8u jenkins jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/pipeline_jobs_generator_jdk8u/) execute on build, generating the [downstream jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/jobs/) via `pipelines/build/generation/config_generation.groovy` (see below).
+    - [pipelines/build/generation/config_generation.groovy](pipelines/build/generation/config_generation.groovy) - Base downstream script file. These are what the [pipeline_jobs_generator_jdk8u jenkins jobs](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/pipeline_jobs_generator_jdk8u/) execute after `jdkx_generation_pipeline.groovy`, calling the dsl template `pipelines/build/common/create_job_from_template.groovy`.
     - [pipelines/build/common/create_job_from_template.groovy](pipelines/build/common/create_job_from_template.groovy) - Downstream jobs dsl. This is the dsl job framework of the [downstream jobs]((https://ci.adoptopenjdk.net/job/build-scripts/job/jobs/)).
 2. Create a User JSON file containing your default constants that the build scripts will use (see [#the defaults.json](#defaultsjson))
 3. Copy the [build-pipeline-generator](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/build-pipeline-generator/) and [pipeline_jobs_generator_jdk8u](https://ci.adoptopenjdk.net/job/build-scripts/job/utils/job/pipeline_jobs_generator_jdk8u/) jobs to your Jenkins instance (replace `jdk8u` with whichever version you intend to build, there should be one job for each jdk version).

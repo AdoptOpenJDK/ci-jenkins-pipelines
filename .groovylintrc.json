@@ -1,0 +1,17 @@
+{
+    "extends": "recommended",
+    "rules": {
+        "CatchException": {
+            "enabled": false
+        },
+        "LineLength": {
+            "enabled": false
+        },
+        "ParameterCount": {
+            "enabled": false
+        },
+        "VariableName": {
+            "enabled": false
+        }
+    }
+}

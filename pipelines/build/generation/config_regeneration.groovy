@@ -1,3 +1,4 @@
+/* groovylint-disable FactoryMethodName, FieldName, NestedBlockDepth, ParameterName */
 import common.IndividualBuildConfig
 import common.RepoHandler
 import groovy.json.JsonSlurper
@@ -20,10 +21,11 @@ limitations under the License.
 /**
 This file is a job that regenerates all of the build configurations in pipelines/build/jobs/configurations/jdk*_pipeline_config.groovy. This ensures that race conditions are not encountered when running concurrent pipeline builds.
 
-1) Its called from jdk<version>_regeneration_pipeline.groovy
+1) Its called from jdk<version>_generation_pipeline.groovy
 2) Attempts to create downstream job dsl's for each pipeline job configuration
 */
-class Regeneration implements Serializable {
+/* groovylint-disable-next-line SerializableClassMustDefineSerialVersionUID */
+class Generation implements Serializable {
     private final String javaVersion
     private final Map<String, Map<String, ?>> buildConfigurations
     private final Map<String, ?> targetConfigurations
@@ -54,11 +56,12 @@ class Regeneration implements Serializable {
     /*
     Constructor
     */
-    public Regeneration(
+    public Generation(
         String javaVersion,
         Map<String, Map<String, ?>> buildConfigurations,
         Map<String, ?> targetConfigurations,
         Map<String, ?> DEFAULTS_JSON,
+        Map<String, ?> ADOPT_DEFAULTS_JSON,
         Map<String, ?> excludedBuilds,
         Integer sleepTime,
         currentBuild,
@@ -79,6 +82,7 @@ class Regeneration implements Serializable {
         this.buildConfigurations = buildConfigurations
         this.targetConfigurations = targetConfigurations
         this.DEFAULTS_JSON = DEFAULTS_JSON
+        this.ADOPT_DEFAULTS_JSON = ADOPT_DEFAULTS_JSON
         this.excludedBuilds = excludedBuilds
         this.sleepTime = sleepTime
         this.currentBuild = currentBuild
@@ -230,16 +234,16 @@ class Regeneration implements Serializable {
     This determines where the location of the operating system setup files are in comparison to the repository root. The param is formatted like this because we need to download and source the file from the bash scripts.
     */
     def getPlatformSpecificConfigPath(Map<String, ?> configuration) {
-        def splitUserUrl = ((String)DEFAULTS_JSON['repository']['build_url']).minus(".git").split('/')
+        def splitUserUrl = (DEFAULTS_JSON['repositories']['build_url'] - ".git").split('/')
         // e.g. https://github.com/AdoptOpenJDK/openjdk-build.git will produce AdoptOpenJDK/openjdk-build
         String userOrgRepo = "${splitUserUrl[splitUserUrl.size() - 2]}/${splitUserUrl[splitUserUrl.size() - 1]}"
 
         // e.g. AdoptOpenJDK/openjdk-build/master/build-farm/platform-specific-configurations
-        def platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repository']['build_branch']}/${DEFAULTS_JSON['configDirectories']['platform']}"
+        String platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repositories']['build_branch']}/${DEFAULTS_JSON['configDirectories']['platform']}"
 
         if (configuration.containsKey("platformSpecificConfigPath")) {
-            // e.g. AdoptOpenJDK/openjdk-build/master/build-farm/platform-specific-configurations.linux.sh
-            platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repository']['build_branch']}/${configuration.platformSpecificConfigPath}"
+            // e.g. AdoptOpenJDK/openjdk-build/master/build-farm/platform-specific-configurations/linux.sh
+            platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repositories']['build_branch']}/${configuration.platformSpecificConfigPath}"
         }
         return platformSpecificConfigPath
     }
@@ -374,7 +378,7 @@ class Regeneration implements Serializable {
 
             // Check if it's in the excludes list
             if (overridePlatform(platformConfig, variant)) {
-                context.println "[INFO] Excluding $platformConfig.os: $variant from $javaToBuild regeneration due to it being in the EXCLUDES_LIST..."
+                context.println "[INFO] Excluding $platformConfig.os: $variant from $javaToBuild generation due to it being in the EXCLUDES_LIST..."
                 return EXCLUDED_CONST
             }
 
@@ -382,7 +386,7 @@ class Regeneration implements Serializable {
 
             def additionalTestLabels = formAdditionalTestLabels(platformConfig, variant)
 
-            def archLabel = getArchLabel(platformConfig, variant)
+            def archLabel = getArchLabel(platformConfig)
 
             def dockerImage = getDockerImage(platformConfig, variant)
 
@@ -448,7 +452,7 @@ class Regeneration implements Serializable {
     }
 
     /**
-    * Generates a job from template at `create_job_from_template.groovy`. This is what creates the job dsl and "regenerates" the job.
+    * Generates a job from template at `create_job_from_template.groovy`. This is what creates the job dsl and "generates" the job.
     * @param jobName
     * @param jobFolder
     * @param config
@@ -471,7 +475,6 @@ class Regeneration implements Serializable {
         def repoHandler = new RepoHandler(context, userRemoteConfigs)
 
         params.put("DEFAULTS_JSON", JsonOutput.prettyPrint(JsonOutput.toJson(DEFAULTS_JSON)))
-        Map ADOPT_DEFAULTS_JSON = repoHandler.getAdoptDefaultsJson()
         params.put("ADOPT_DEFAULTS_JSON", JsonOutput.prettyPrint(JsonOutput.toJson(ADOPT_DEFAULTS_JSON)))
 
         params.put("BUILD_CONFIG", config.toJson())
@@ -529,8 +532,8 @@ class Regeneration implements Serializable {
         // Job dsl
         createJob(jobTopName, jobFolder, config)
 
-        // Job regenerated correctly
-        context.println "[SUCCESS] Regenerated configuration for job $downstreamJobName\n"
+        // Job generated correctly
+        context.println "[SUCCESS] Generated configuration for job $downstreamJobName\n"
     }
 
     /**
@@ -556,21 +559,21 @@ class Regeneration implements Serializable {
     }
 
     /**
-    * Main function. Ran from jdkxx_regeneration_pipeline.groovy, this will be what jenkins will run first.
+    * Main function. Ran from jdkxx_generation_pipeline.groovy, this will be what jenkins will run first.
     */
     @SuppressWarnings("unused")
-    def regenerate() {
+    def generate() {
         context.timestamps {
             def versionNumbers = javaVersion =~ /\d+/
 
             /*
-            * Stage: Check that the pipeline isn't in in-progress or queued up. Once clear, run the regeneration job
+            * Stage: Check that the pipeline isn't in in-progress or queued up. Once clear, run the generation job
             */
             context.stage("Check $javaVersion pipeline status") {
 
                 if (jobRootDir.contains("pr-tester")) {
                     // No need to check if we're going to overwrite anything for the PR tester since concurrency isn't enabled -> https://github.com/AdoptOpenJDK/openjdk-build/pull/2155
-                    context.println "[SUCCESS] Don't need to check if the pr-tester is running as concurrency is disabled. Running regeneration job..."
+                    context.println "[SUCCESS] Don't need to check if the pr-tester is running as concurrency is disabled. Running generation job..."
                 } else {
                     // Get all pipelines
                     def getPipelines = queryAPI("${jenkinsBuildRoot}/api/json?tree=jobs[name]&pretty=true&depth1")
@@ -591,7 +594,7 @@ class Regeneration implements Serializable {
                                     def getPipelineBuilds = queryAPI("${jenkinsBuildRoot}/job/${pipeline}/api/json?pretty=true&depth1")
 
                                     if (getPipelineBuilds.builds == []) {
-                                        context.println "[SUCCESS] ${pipeline} has not been run before. Running regeneration job..."
+                                        context.println "[SUCCESS] ${pipeline} has not been run before. Running generation job..."
                                         inProgress = false
                                     }
 
@@ -612,7 +615,7 @@ class Regeneration implements Serializable {
 
                             }
 
-                            context.println "[SUCCESS] ${pipeline} is idle. Running regeneration job..."
+                            context.println "[SUCCESS] ${pipeline} is idle. Running generation job..."
                         }
 
                     }
@@ -622,10 +625,10 @@ class Regeneration implements Serializable {
             } // end check stage
 
             /*
-            * Stage: Regenerate all of the job configurations by job type (i.e. jdk8u-linux-x64-hotspot
+            * Stage: Generate all of the job configurations by job type (i.e. jdk8u-linux-x64-hotspot
             * jdk8u-linux-x64-openj9, etc.)
             */
-            context.stage("Regenerate $javaVersion pipeline jobs") {
+            context.stage("Generate $javaVersion pipeline jobs") {
 
                 // If we're building jdk head, update the javaToBuild
                 context.println "[INFO] Querying adopt api to get the JDK-Head number"
@@ -641,7 +644,7 @@ class Regeneration implements Serializable {
                     context.println "[INFO] This IS NOT JDK-HEAD. javaToBuild is ${javaToBuild}..."
                 }
 
-                // Regenerate each os and arch
+                // Generate each os and arch
                 targetConfigurations.keySet().each { osarch ->
 
                     context.println "[INFO] Regenerating: $osarch"
@@ -676,7 +679,7 @@ class Regeneration implements Serializable {
                             }
 
                             if (keyFound == false) {
-                                context.println "[WARNING] Config file key: ${osarch} not recognised. Valid configuration keys for ${javaToBuild} are ${buildConfigurations.keySet()}.\n[WARNING] ${osarch} WILL NOT BE REGENERATED! Setting build result to UNSTABLE..."
+                                context.println "[WARNING] Config file key: ${osarch} not recognised. Valid configuration keys for ${javaToBuild} are ${buildConfigurations.keySet()}.\n[WARNING] ${osarch} WILL NOT BE GENERATED! Setting build result to UNSTABLE..."
                                 currentBuild.result = "UNSTABLE"
                             } else {
                                 // Skip variant job make if it's marked as excluded
@@ -700,7 +703,7 @@ class Regeneration implements Serializable {
 
             } // end stage
         } // end timestamps
-    } // end regenerate()
+    } // end generate()
 
 }
 
@@ -709,6 +712,7 @@ return {
     Map<String, Map<String, ?>> buildConfigurations,
     Map<String, ?> targetConfigurations,
     Map<String, ?> DEFAULTS_JSON,
+    Map<String, ?> ADOPT_DEFAULTS_JSON,
     String excludes,
     Integer sleepTime,
     def currentBuild,
@@ -731,11 +735,12 @@ return {
             excludedBuilds = new JsonSlurper().parseText(excludes) as Map
         }
 
-        return new Regeneration(
+        return new generation(
             javaVersion,
             buildConfigurations,
             targetConfigurations,
             DEFAULTS_JSON,
+            ADOPT_DEFAULTS_JSON,
             excludedBuilds,
             sleepTime,
             currentBuild,

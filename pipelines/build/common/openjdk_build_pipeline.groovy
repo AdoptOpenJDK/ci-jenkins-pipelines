@@ -96,6 +96,10 @@ class Build {
         this.env = env
     }
 
+    /* Loads the openjdk-jenkins-helper@master library. It has to be executed several times as it cannot be passed between functions */
+    def loadJobHelper() {
+        return context.library(identifier: 'openjdk-jenkins-helper@master').JobHelper
+    }
 
     /*
     Returns the java version number for this job (e.g. 8, 11, 15, 16)
@@ -111,11 +115,9 @@ class Build {
             try {
                 context.timeout(time: buildTimeouts.API_REQUEST_TIMEOUT, unit: "HOURS") {
                     // Query the Adopt api to get the "tip_version"
-                    def JobHelper = context.library(identifier: 'openjdk-jenkins-helper@master').JobHelper
+                    def JobHelper = loadJobHelper()
                     context.println "Querying Adopt Api for the JDK-Head number (tip_version)..."
-
-                    def response = JobHelper.getAvailableReleases(context)
-                    headVersion = (int) response.getAt("tip_version")
+                    headVersion = JobHelper.getAvailableReleases(context)["tip_version"]
                     context.println "Found Java Version Number: ${headVersion}"
                 }
             } catch (FlowInterruptedException e) {
@@ -266,17 +268,18 @@ class Build {
                             keep_test_reportdir = "true"
                         }
 
+                        // example jobName: Test_openjdk11_hs_sanity.system_ppc64_aix
                         def jobParams = getTestJobParams(testType)
                         def jobName = jobParams.TEST_JOB_NAME
-                        def JobHelper = context.library(identifier: 'openjdk-jenkins-helper@master').JobHelper
+                        def JobHelper = loadJobHelper()
 
                         // Create test job if job doesn't exist or is not runnable
                         if (!JobHelper.jobIsRunnable(jobName as String)) {
-                            context.node('master') { 
-	                            context.sh('curl -Os https://raw.githubusercontent.com/AdoptOpenJDK/openjdk-tests/master/buildenv/jenkins/testJobTemplate')
-	                            def templatePath = 'testJobTemplate'
-	                            context.println "Test job doesn't exist, create test job: ${jobName}"
-	                            context.jobDsl targets: templatePath, ignoreExisting: false, additionalParameters: jobParams
+                            context.node('master') {
+                                context.sh('curl -Os https://raw.githubusercontent.com/AdoptOpenJDK/openjdk-tests/master/buildenv/jenkins/testJobTemplate')
+                                def templatePath = 'testJobTemplate'
+                                context.println "Test job doesn't exist, create test job: ${jobName}"
+                                context.jobDsl targets: templatePath, ignoreExisting: false, additionalParameters: jobParams
                             }
                         }
                         context.catchError {
@@ -978,11 +981,11 @@ class Build {
                 envVars.add("FILENAME=${filename}" as String)
 
                 // Add in the adopt platform config path so it can be used if the user doesn't have one
-                def splitAdoptUrl = ((String)ADOPT_DEFAULTS_JSON['repository']['build_url']).minus(".git").split('/')
+                String splitAdoptUrl = (ADOPT_DEFAULTS_JSON['repositories']['build_url'] - ".git").split('/')
                 // e.g. https://github.com/AdoptOpenJDK/openjdk-build.git will produce AdoptOpenJDK/openjdk-build
                 String userOrgRepo = "${splitAdoptUrl[splitAdoptUrl.size() - 2]}/${splitAdoptUrl[splitAdoptUrl.size() - 1]}"
                 // e.g. AdoptOpenJDK/openjdk-build/master/build-farm/platform-specific-configurations
-                envVars.add("ADOPT_PLATFORM_CONFIG_LOCATION=${userOrgRepo}/${ADOPT_DEFAULTS_JSON['repository']['build_branch']}/${ADOPT_DEFAULTS_JSON['configDirectories']['platform']}" as String)
+                envVars.add("ADOPT_PLATFORM_CONFIG_LOCATION=${userOrgRepo}/${ADOPT_DEFAULTS_JSON['repositories']['build_branch']}/${ADOPT_DEFAULTS_JSON['configDirectories']['platform']}" as String)
 
                 // Execute build
                 context.withEnv(envVars) {

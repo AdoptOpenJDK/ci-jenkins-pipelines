@@ -1,24 +1,29 @@
+/* groovylint-disable NestedBlockDepth */
 import java.nio.file.NoSuchFileException
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
+/*
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 node('master') {
   try {
     // Pull in Adopt defaults
-    String ADOPT_DEFAULTS_FILE_URL = "https://raw.githubusercontent.com/AdoptOpenJDK/ci-jenkins-pipelines/master/pipelines/defaults.json"
-    def getAdopt = new URL(ADOPT_DEFAULTS_FILE_URL).openConnection()
-    Map<String, ?> ADOPT_DEFAULTS_JSON = new JsonSlurper().parseText(getAdopt.getInputStream().getText()) as Map
-    if (!ADOPT_DEFAULTS_JSON || !Map.class.isInstance(ADOPT_DEFAULTS_JSON)) {
-      throw new Exception("[ERROR] No ADOPT_DEFAULTS_JSON found at ${ADOPT_DEFAULTS_FILE_URL} or it is not a valid JSON object. Please ensure this path is correct and leads to a JSON or Map object file. NOTE: Since this adopt's defaults and unlikely to change location, this is likely a network or GitHub issue.")
-    }
+    Map<String, ?> ADOPT_DEFAULTS_JSON = new JsonSlurper().parseText(params.ADOPT_DEFAULTS_JSON) as Map
 
     // Pull in User defaults
-    String DEFAULTS_FILE_URL = (params.DEFAULTS_URL) ?: ADOPT_DEFAULTS_FILE_URL
-    def getUser = new URL(DEFAULTS_FILE_URL).openConnection()
-    Map<String, ?> DEFAULTS_JSON = new JsonSlurper().parseText(getUser.getInputStream().getText()) as Map
-    if (!DEFAULTS_JSON || !Map.class.isInstance(DEFAULTS_JSON)) {
-      throw new Exception("[ERROR] No DEFAULTS_JSON found at ${DEFAULTS_FILE_URL} or it is not a valid JSON object. Please ensure this path is correct and leads to a JSON or Map object file.")
-    }
+    Map<String, ?> DEFAULTS_JSON = new JsonSlurper().parseText(params.DEFAULTS_JSON) as Map
 
     Map remoteConfigs = [:]
     def repoBranch = null
@@ -28,8 +33,8 @@ node('master') {
     */
     def checkoutAdoptPipelines = { ->
       checkout([$class: 'GitSCM',
-        branches: [ [ name: ADOPT_DEFAULTS_JSON["repository"]["pipeline_branch"] ] ],
-        userRemoteConfigs: [ [ url: ADOPT_DEFAULTS_JSON["repository"]["pipeline_url"] ] ]
+        branches: [ [ name: ADOPT_DEFAULTS_JSON["repositories"]["pipeline_branch"] ] ],
+        userRemoteConfigs: [ [ url: ADOPT_DEFAULTS_JSON["repositories"]["pipeline_url"] ] ]
       ])
     }
 
@@ -44,12 +49,12 @@ node('master') {
     }
 
     timestamps {
-      def retiredVersions = [9, 10, 12, 13, 14, 15]
+      def retiredVersions = (params.RETIRED_VERSIONS) ?: []
       def generatedPipelines = []
 
       // Load git url and branch and gitBranch. These determine where we will be pulling user configs from.
-      def repoUri = (params.REPOSITORY_URL) ?: DEFAULTS_JSON["repository"]["pipeline_url"]
-      repoBranch = (params.REPOSITORY_BRANCH) ?: DEFAULTS_JSON["repository"]["pipeline_branch"]
+      def repoUri = (params.REPOSITORY_URL) ?: DEFAULTS_JSON["repositories"]["pipeline_url"]
+      repoBranch = (params.REPOSITORY_BRANCH) ?: DEFAULTS_JSON["repositories"]["pipeline_branch"]
 
       // Load credentials to be used in checking out. This is in case we are checking out a URL that is not Adopts and they don't have their ssh key on the machine.
       def checkoutCreds = (params.CHECKOUT_CREDENTIALS) ?: ""
@@ -81,23 +86,41 @@ node('master') {
 
       // Load scriptFolderPath. This is the folder where the openjdkxx-pipeline.groovy code is located compared to the repository root. These are the top level pipeline jobs.
       def scriptFolderPath = (params.SCRIPT_FOLDER_PATH) ?: DEFAULTS_JSON["scriptDirectories"]["upstream"]
-
       if (!fileExists(scriptFolderPath)) {
         println "[WARNING] ${scriptFolderPath} does not exist in your chosen repository. Updating it to use Adopt's instead"
         checkoutAdoptPipelines()
         scriptFolderPath = ADOPT_DEFAULTS_JSON['scriptDirectories']['upstream']
-        println "[SUCCESS] The path is now ${scriptFolderPath} relative to ${ADOPT_DEFAULTS_JSON['repository']['pipeline_url']}"
+        println "[SUCCESS] The path is now ${scriptFolderPath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
         checkoutUserPipelines()
       }
 
       // Load nightlyFolderPath. This is the folder where the jdkxx.groovy code is located compared to the repository root. These define what the default set of nightlies will be.
       def nightlyFolderPath = (params.NIGHTLY_FOLDER_PATH) ?: DEFAULTS_JSON["configDirectories"]["nightly"]
-
       if (!fileExists(nightlyFolderPath)) {
         println "[WARNING] ${nightlyFolderPath} does not exist in your chosen repository. Updating it to use Adopt's instead"
         checkoutAdoptPipelines()
         nightlyFolderPath = ADOPT_DEFAULTS_JSON['configDirectories']['nightly']
-        println "[SUCCESS] The path is now ${nightlyFolderPath} relative to ${ADOPT_DEFAULTS_JSON['repository']['pipeline_url']}"
+        println "[SUCCESS] The path is now ${nightlyFolderPath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
+        checkoutUserPipelines()
+      }
+
+      // Load buildFolderPath. This is the folder where the jdkxx.groovy code is located compared to the repository root. These define what the default set of nightlies will be.
+      def buildFolderPath = (params.BUILD_FOLDER_PATH) ?: DEFAULTS_JSON["configDirectories"]["build"]
+      if (!fileExists(buildFolderPath)) {
+        println "[WARNING] ${buildFolderPath} does not exist in your chosen repository. Updating it to use Adopt's instead"
+        checkoutAdopt()
+        buildFolderPath = ADOPT_DEFAULTS_JSON['configDirectories']['build']
+        println "[SUCCESS] The path is now ${buildFolderPath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
+        checkoutUserPipelines()
+      }
+
+      // Load baseFilePath. This is the folder where the base file code is located compared to the repository root. This is the file that is executed after the initial script file.
+      def baseFilePath = (params.BASE_FILE_PATH) ?: DEFAULTS_JSON["baseFileDirectories"]["upstream"]
+      if (!fileExists(baseFilePath)) {
+        println "[WARNING] ${baseFilePath} does not exist in your chosen repository. Updating it to use Adopt's instead"
+        checkoutAdopt()
+        baseFilePath = ADOPT_DEFAULTS_JSON["baseFileDirectories"]["upstream"]
+        println "[SUCCESS] The path is now ${baseFilePath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
         checkoutUserPipelines()
       }
 
@@ -108,7 +131,7 @@ node('master') {
         println "[WARNING] ${jobTemplatePath} does not exist in your chosen repository. Updating it to use Adopt's instead"
         checkoutAdoptPipelines()
         jobTemplatePath = ADOPT_DEFAULTS_JSON['templateDirectories']['upstream']
-        println "[SUCCESS] The path is now ${jobTemplatePath} relative to ${ADOPT_DEFAULTS_JSON['repository']['pipeline_url']}"
+        println "[SUCCESS] The path is now ${jobTemplatePath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
         checkoutUserPipelines()
       }
 
@@ -129,7 +152,9 @@ node('master') {
       println "REPOSITORY_BRANCH = $repoBranch"
       println "JOB_ROOT = $jobRoot"
       println "SCRIPT_FOLDER_PATH = $scriptFolderPath"
+      println "BASE_FILE_PATH = $baseFilePath"
       println "NIGHTLY_FOLDER_PATH = $nightlyFolderPath"
+      println "BUILD_FOLDER_PATH = $buildFolderPath"
       println "JOB_TEMPLATE_PATH = $jobTemplatePath"
       println "ENABLE_PIPELINE_SCHEDULE = $enablePipelineSchedule"
       println "USE_ADOPT_SHELL_SCRIPTS = $useAdoptShellScripts"
@@ -137,9 +162,7 @@ node('master') {
       // Collect available JDK versions to check for generation (tip_version + 1 just in case it is out of date on a release day)
       def JobHelper = library(identifier: 'openjdk-jenkins-helper@master').JobHelper
       println "Querying Adopt Api for the JDK-Head number (tip_version)..."
-
-      def response = JobHelper.getAvailableReleases(this)
-      int headVersion = (int) response.getAt("tip_version")
+      int headVersion = JobHelper.getAvailableReleases(this)['tip_version']
 
       (8..headVersion+1).each({javaVersion ->
 
@@ -155,6 +178,9 @@ node('master') {
           BUILD_FOLDER        : jobRoot,
           CHECKOUT_CREDENTIALS: checkoutCreds,
           JAVA_VERSION        : javaVersion,
+          LIBRARY_PATH        : libraryPath,
+          BASE_FILE_PATH      : baseFilePath,
+          BUILD_FOLDER_PATH   : buildFolderPath,
           JOB_NAME            : "openjdk${javaVersion}-pipeline",
           SCRIPT              : "${scriptFolderPath}/openjdk_pipeline.groovy",
           disableJob          : false,
@@ -180,6 +206,7 @@ node('master') {
                 target = load "${WORKSPACE}/${ADOPT_DEFAULTS_JSON['configDirectories']['nightly']}/jdk${javaVersion}u.groovy"
               } catch (NoSuchFileException e4) {
                 println "[WARNING] No config found for JDK${javaVersion} in the User's or Adopt's repository. Skipping generation..."
+                /* groovylint-disable-next-line ReturnNullFromCatchBlock */
                 return
               }
             }
@@ -236,7 +263,7 @@ node('master') {
           println "[WARNING] ${config.SCRIPT} does not exist in your chosen repository. Updating it to use Adopt's instead"
           checkoutAdoptPipelines()
           config.SCRIPT = ADOPT_DEFAULTS_JSON['scriptDirectories']['weekly']
-          println "[SUCCESS] The path is now ${config.SCRIPT} relative to ${ADOPT_DEFAULTS_JSON['repository']['pipeline_url']}"
+          println "[SUCCESS] The path is now ${config.SCRIPT} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
           checkoutUserPipelines()
         }
         config.PIPELINE = "openjdk${javaVersion}-pipeline"

@@ -1,3 +1,4 @@
+/* groovylint-disable NestedBlockDepth, ParameterName, PropertyName */
 import common.IndividualBuildConfig
 import groovy.json.*
 
@@ -31,6 +32,7 @@ limitations under the License.
  * 3. Push generated artifacts to github
  */
 //@CompileStatic(extensions = "JenkinsTypeCheckHelperExtension")
+/* groovylint-disable-next-line SerializableClassMustDefineSerialVersionUID */
 class Builder implements Serializable {
     String javaToBuild
     Map<String, Map<String, ?>> buildConfigurations
@@ -72,6 +74,11 @@ class Builder implements Serializable {
         PUBLISH_ARTIFACTS_TIMEOUT : 3
     ]
 
+    /* Loads the openjdk-jenkins-helper@master library. It has to be executed several times as it cannot be passed between functions */
+    def loadJobHelper() {
+        return context.library(identifier: 'openjdk-jenkins-helper@master').JobHelper
+    }
+
     /*
     Returns an IndividualBuildConfig that is passed down to the downstream job.
     It uses several helper functions to pull in and parse the build configuration for the job.
@@ -80,10 +87,9 @@ class Builder implements Serializable {
     IndividualBuildConfig buildConfiguration(Map<String, ?> platformConfig, String variant) {
 
         // Query the Adopt api to get the "tip_version"
-        def JobHelper = context.library(identifier: 'openjdk-jenkins-helper@master').JobHelper
+        def JobHelper = loadJobHelper()
         context.println "Querying Adopt Api for the JDK-Head number (tip_version)..."
-        def response = JobHelper.getAvailableReleases(context)
-        int headVersion = (int) response.getAt("tip_version")
+        int headVersion = JobHelper.getAvailableReleases(context)['tip_version']
         context.println "Found Java Version Number: ${headVersion}"
 
         if (javaToBuild == "jdk${headVersion}") {
@@ -94,7 +100,7 @@ class Builder implements Serializable {
 
         def additionalTestLabels = formAdditionalTestLabels(platformConfig, variant)
 
-        def archLabel = getArchLabel(platformConfig, variant)
+        def archLabel = getArchLabel(platformConfig)
 
         def dockerImage = getDockerImage(platformConfig, variant)
 
@@ -393,15 +399,15 @@ class Builder implements Serializable {
     This determines where the location of the operating system setup files are in comparison to the repository root. The param is formatted like this because we need to download and source the file from the bash scripts.
     */
     def getPlatformSpecificConfigPath(Map<String, ?> configuration) {
-        def splitUserUrl = ((String)DEFAULTS_JSON['repository']['build_url']).minus(".git").split('/')
+        def splitUserUrl = (DEFAULTS_JSON['repositories']['build_url'] - '.git').split('/')
         // e.g. https://github.com/AdoptOpenJDK/openjdk-build.git will produce AdoptOpenJDK/openjdk-build
         String userOrgRepo = "${splitUserUrl[splitUserUrl.size() - 2]}/${splitUserUrl[splitUserUrl.size() - 1]}"
 
         // e.g. AdoptOpenJDK/openjdk-build/master/build-farm/platform-specific-configurations
-        def platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repository']['build_branch']}/${DEFAULTS_JSON['configDirectories']['platform']}"
+        String platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repositories']['build_branch']}/${DEFAULTS_JSON['configDirectories']['platform']}"
         if (configuration.containsKey("platformSpecificConfigPath")) {
-            // e.g. AdoptOpenJDK/openjdk-build/master/build-farm/platform-specific-configurations.linux.sh
-            platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repository']['build_branch']}/${configuration.platformSpecificConfigPath}"
+            // e.g. AdoptOpenJDK/openjdk-build/master/build-farm/platform-specific-configurations/linux.sh
+            platformSpecificConfigPath = "${userOrgRepo}/${DEFAULTS_JSON['repositories']['build_branch']}/${configuration.platformSpecificConfigPath}"
         }
         return platformSpecificConfigPath
     }
@@ -517,23 +523,6 @@ class Builder implements Serializable {
     }
 
     /*
-    Returns the JDK head number from the Adopt API
-    */
-    Integer getHeadVersionNumber() {
-        try {
-            context.timeout(time: pipelineTimeouts.API_REQUEST_TIMEOUT, unit: "HOURS") {
-                // Query the Adopt api to get the "tip_version"
-                def JobHelper = context.library(identifier: 'openjdk-jenkins-helper@master').JobHelper
-                context.println "Querying Adopt Api for the JDK-Head number (tip_version)..."
-                def response = JobHelper.getAvailableReleases(context)
-                return (int) response.getAt("tip_version")
-            }
-        } catch (FlowInterruptedException e) {
-            throw new Exception("[ERROR] Adopt API Request timeout (${pipelineTimeouts.API_REQUEST_TIMEOUT} HOURS) has been reached. Exiting...")
-        }
-    }
-
-    /*
     Returns the java version number for this pipeline (e.g. 8, 11, 15, 16)
     */
     Integer getJavaVersionNumber() {
@@ -542,7 +531,19 @@ class Builder implements Serializable {
         if (matcher.matches()) {
             return Integer.parseInt(matcher.group('version'))
         } else if ("jdk".equalsIgnoreCase(javaToBuild.trim())) {
-            return getHeadVersionNumber()
+            int headVersion
+            try {
+                context.timeout(time: pipelineTimeouts.API_REQUEST_TIMEOUT, unit: "HOURS") {
+                    // Query the Adopt api to get the "tip_version"
+                    def JobHelper = loadJobHelper()
+                    context.println "Querying Adopt Api for the JDK-Head number (tip_version)..."
+                    headVersion = JobHelper.getAvailableReleases(context)['tip_version']
+                    context.println "Found Java Version Number: ${headVersion}"
+                }
+            } catch (FlowInterruptedException e) {
+                throw new Exception("[ERROR] Adopt API Request timeout (${pipelineTimeouts.API_REQUEST_TIMEOUT} HOURS) has been reached. Exiting...")
+            }
+            return headVersion
         } else {
             throw new Exception("Failed to read java version '${javaToBuild}'")
         }
@@ -566,7 +567,7 @@ class Builder implements Serializable {
     }
 
     /*
-    Returns the jenkins folder of where it's assumed the downstream build jobs have been regenerated
+    Returns the jenkins folder of where it's assumed the downstream build jobs have been generated
     */
     def getJobFolder() {
         def parentDir = currentBuild.fullProjectName.substring(0, currentBuild.fullProjectName.lastIndexOf("/"))
@@ -648,8 +649,14 @@ class Builder implements Serializable {
 
             def jobs = [:]
 
+            // Query the Adopt api to get the "tip_version"
+            def JobHelper = loadJobHelper()
+            context.println "Querying Adopt Api for the JDK-Head number (tip_version)..."
+            int headVersion = JobHelper.getAvailableReleases(context)['tip_version']
+            context.println "Found Java Version Number: ${headVersion}"
+
             // Special case for JDK head where the jobs are called jdk-os-arch-variant
-            if (javaToBuild == "jdk${getHeadVersionNumber()}") {
+            if (javaToBuild == "jdk${headVersion}") {
                 javaToBuild = "jdk"
             }
 
@@ -804,7 +811,7 @@ return {
         } else if (release) {
             // Default to scmReference, remove any trailing "_adopt" from the tag if present
             if (scmReference) {
-                publishName = scmReference.minus("_adopt")
+                publishName = scmReference - "_adopt"
             }
         }
 

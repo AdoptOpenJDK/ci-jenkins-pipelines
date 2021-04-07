@@ -1,3 +1,6 @@
+/* groovylint-disable */
+// Disable groovy lint as it thinks it's a map yet this is actually how the jobDsl plugin is supposed to look
+
 /*
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

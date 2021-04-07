@@ -17,29 +17,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-String javaVersion = params.JAVA_VERSION
-String ADOPT_DEFAULTS_FILE_URL = "https://raw.githubusercontent.com/AdoptOpenJDK/ci-jenkins-pipelines/master/pipelines/defaults.json"
-String DEFAULTS_FILE_URL = (params.DEFAULTS_URL) ?: ADOPT_DEFAULTS_FILE_URL
-
 node ("master") {
-  // Retrieve Adopt Defaults
-  def getAdopt = new URL(ADOPT_DEFAULTS_FILE_URL).openConnection()
-  Map<String, ?> ADOPT_DEFAULTS_JSON = new JsonSlurper().parseText(getAdopt.getInputStream().getText()) as Map
-  if (!ADOPT_DEFAULTS_JSON || !Map.class.isInstance(ADOPT_DEFAULTS_JSON)) {
-    throw new Exception("[ERROR] No ADOPT_DEFAULTS_JSON found at ${ADOPT_DEFAULTS_FILE_URL} or it is not a valid JSON object. Please ensure this path is correct and leads to a JSON or Map object file. NOTE: Since this adopt's defaults and unlikely to change location, this is likely a network or GitHub issue.")
-  }
+  String javaVersion = params.JAVA_VERSION
+  // Pull in Adopt defaults
+  Map<String, ?> ADOPT_DEFAULTS_JSON = new JsonSlurper().parseText(params.ADOPT_DEFAULTS_JSON) as Map
 
-  // Retrieve User Defaults
-  def getUser = new URL(DEFAULTS_FILE_URL).openConnection()
-  Map<String, ?> DEFAULTS_JSON = new JsonSlurper().parseText(getUser.getInputStream().getText()) as Map
-  if (!DEFAULTS_JSON || !Map.class.isInstance(DEFAULTS_JSON)) {
-    throw new Exception("[ERROR] No DEFAULTS_JSON found at ${DEFAULTS_FILE_URL}. Please ensure this path is correct and it leads to a JSON or Map object file.")
-  }
+  // Pull in User defaults
+  Map<String, ?> DEFAULTS_JSON = new JsonSlurper().parseText(params.DEFAULTS_JSON) as Map
 
   try {
     // Load git url and branch and gitBranch. These determine where we will be pulling configs from.
-    def repoUri = (params.REPOSITORY_URL) ?: DEFAULTS_JSON["repository"]["pipeline_url"]
-    def repoBranch = (params.REPOSITORY_BRANCH) ?: DEFAULTS_JSON["repository"]["pipeline_branch"]
+    def repoUri = (params.REPOSITORY_URL) ?: DEFAULTS_JSON["repositories"]["pipeline_url"]
+    def repoBranch = (params.REPOSITORY_BRANCH) ?: DEFAULTS_JSON["repositories"]["pipeline_branch"]
 
     // Load credentials to be used in checking out. This is in case we are checking out a URL that is not Adopts and they don't have their ssh key on the machine.
     def checkoutCreds = (params.CHECKOUT_CREDENTIALS) ?: ""
@@ -58,8 +47,8 @@ node ("master") {
     */
     def checkoutAdoptPipelines = { ->
       checkout([$class: 'GitSCM',
-        branches: [ [ name: ADOPT_DEFAULTS_JSON["repository"]["pipeline_branch"] ] ],
-        userRemoteConfigs: [ [ url: ADOPT_DEFAULTS_JSON["repository"]["pipeline_url"] ] ]
+        branches: [ [ name: ADOPT_DEFAULTS_JSON["repositories"]["pipeline_branch"] ] ],
+        userRemoteConfigs: [ [ url: ADOPT_DEFAULTS_JSON["repositories"]["pipeline_url"] ] ]
       ])
     }
 
@@ -142,7 +131,7 @@ node ("master") {
       println "[WARNING] ${jobTemplatePath} does not exist in your chosen repository. Updating it to use Adopt's instead"
       checkoutAdoptPipelines()
       jobTemplatePath = ADOPT_DEFAULTS_JSON['templateDirectories']['downstream']
-      println "[SUCCESS] The path is now ${jobTemplatePath} relative to ${ADOPT_DEFAULTS_JSON['repository']['pipeline_url']}"
+      println "[SUCCESS] The path is now ${jobTemplatePath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
       checkoutUserPipelines()
     }
 
@@ -151,7 +140,7 @@ node ("master") {
       println "[WARNING] ${scriptPath} does not exist in your chosen repository. Updating it to use Adopt's instead"
       checkoutAdoptPipelines()
       scriptPath = ADOPT_DEFAULTS_JSON['scriptDirectories']['downstream']
-      println "[SUCCESS] The path is now ${scriptPath} relative to ${ADOPT_DEFAULTS_JSON['repository']['pipeline_url']}"
+      println "[SUCCESS] The path is now ${scriptPath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
       checkoutUserPipelines()
     }
 
@@ -160,7 +149,7 @@ node ("master") {
       println "[WARNING] ${baseFilePath} does not exist in your chosen repository. Updating it to use Adopt's instead"
       checkoutAdoptPipelines()
       baseFilePath = ADOPT_DEFAULTS_JSON['baseFileDirectories']['downstream']
-      println "[SUCCESS] The path is now ${baseFilePath} relative to ${ADOPT_DEFAULTS_JSON['repository']['pipeline_url']}"
+      println "[SUCCESS] The path is now ${baseFilePath} relative to ${ADOPT_DEFAULTS_JSON['repositories']['pipeline_url']}"
       checkoutUserPipelines()
     }
 
@@ -171,7 +160,7 @@ node ("master") {
       sleepTime = SLEEP_TIME as Integer
     }
 
-    println "[INFO] Running regeneration script with the following configuration:"
+    println "[INFO] Running generation script with the following configuration:"
     println "VERSION: $javaVersion"
     println "REPOSITORY URL: $repoUri"
     println "REPOSITORY BRANCH: $repoBranch"
@@ -187,30 +176,32 @@ node ("master") {
     println "SLEEP_TIME: $sleepTime"
     if (jenkinsCreds == "") { println "[WARNING] No Jenkins API Credentials have been provided! If your server does not have anonymous read enabled, you may encounter 403 api request error codes." }
 
-    // Load regen script and execute base file
-    Closure regenerationScript
-    def regenScriptPath = (params.REGEN_SCRIPT_PATH) ?: DEFAULTS_JSON['scriptDirectories']['regeneration']
+    // Load gen script and execute base file
+    Closure generationScript
+    def genScriptPath = (params.REGEN_SCRIPT_PATH) ?: DEFAULTS_JSON['baseFileDirectories']['generation']
     try {
-      regenerationScript = load "${WORKSPACE}/${regenScriptPath}"
+      generationScript = load "${WORKSPACE}/${genScriptPath}"
     } catch (NoSuchFileException e) {
-      println "[WARNING] ${regenScriptPath} does not exist in your chosen repository. Using adopt's script path instead"
-      checkoutAdoptPipelines()
-      regenerationScript = load "${WORKSPACE}/${ADOPT_DEFAULTS_JSON['scriptDirectories']['regeneration']}"
+      println "[WARNING] ${genScriptPath} does not exist in your chosen repository. Using adopt's script path instead"
+      checkoutAdopt()
+      generationScript = load "${WORKSPACE}/${ADOPT_DEFAULTS_JSON['baseFileDirectories']['generation']}"
       checkoutUserPipelines()
     }
 
     if (jenkinsCreds != "") {
       withCredentials([usernamePassword(
+          /* groovylint-disable-next-line GStringExpressionWithinString */
           credentialsId: '${JENKINS_AUTH}',
           usernameVariable: 'jenkinsUsername',
           passwordVariable: 'jenkinsToken'
       )]) {
         String jenkinsCredentials = "$jenkinsUsername:$jenkinsToken"
-        regenerationScript(
+        generationScript(
           javaVersion,
           buildConfigurations,
           targetConfigurations,
           DEFAULTS_JSON,
+          ADOPT_DEFAULTS_JSON,
           excludes,
           sleepTime,
           currentBuild,
@@ -226,14 +217,15 @@ node ("master") {
           jenkinsCredentials,
           checkoutCreds,
           false
-        ).regenerate()
+        ).generate()
       }
     } else {
-      regenerationScript(
+      generationScript(
         javaVersion,
         buildConfigurations,
         targetConfigurations,
         DEFAULTS_JSON,
+        ADOPT_DEFAULTS_JSON,
         excludes,
         sleepTime,
         currentBuild,
@@ -249,7 +241,7 @@ node ("master") {
         jenkinsCreds,
         checkoutCreds,
         false
-      ).regenerate()
+      ).generate()
     }
 
     println "[SUCCESS] All done!"

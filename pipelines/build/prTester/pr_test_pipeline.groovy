@@ -1,3 +1,4 @@
+/* groovylint-disable ParameterName, PropertyName */
 import groovy.json.JsonSlurper
 import java.nio.file.NoSuchFileException
 
@@ -16,6 +17,7 @@ limitations under the License.
 */
 
 
+/* groovylint-disable-next-line SerializableClassMustDefineSerialVersionUID */
 class PullRequestTestPipeline implements Serializable {
 
     def context
@@ -76,13 +78,13 @@ class PullRequestTestPipeline implements Serializable {
         def jobs = [:]
         Boolean pipelineFailed = false
 
-        context.println "loading ${context.WORKSPACE}/${DEFAULTS_JSON['scriptDirectories']['regeneration']}"
-        Closure regenerationScript = context.load "${context.WORKSPACE}/${DEFAULTS_JSON['scriptDirectories']['regeneration']}"
+        context.println "loading ${context.WORKSPACE}/${DEFAULTS_JSON['scriptDirectories']['generation']}"
+        Closure generationScript = context.load "${context.WORKSPACE}/${DEFAULTS_JSON['scriptDirectories']['generation']}"
 
         javaVersions.each({ javaVersion ->
             // generate top level job
             generatePipelineJob(javaVersion)
-            context.println "[INFO] Running downstream jobs regeneration script..."
+            context.println "[INFO] Running downstream jobs generation script..."
 
             // Load platform specific build configs
             def buildConfigurations
@@ -101,7 +103,7 @@ class PullRequestTestPipeline implements Serializable {
             def excludedBuilds = ""
 
             // Generate downstream pipeline jobs
-            regenerationScript(
+            generationScript(
                 actualJavaVersion,
                 buildConfigurations,
                 testConfigurations,
@@ -121,7 +123,7 @@ class PullRequestTestPipeline implements Serializable {
                 null,
                 null,
                 true
-            ).regenerate()
+            ).generate()
 
             context.println "[SUCCESS] All done!"
 
@@ -189,7 +191,7 @@ return {
         Map<String, ?> defaultsJson = DEFAULTS_JSON
 
         if (gitRepo == null) {
-            gitRepo = DEFAULTS_JSON['repository']['pipeline_url']
+            gitRepo = DEFAULTS_JSON['repositories']['pipeline_url']
         }
 
         if (testConfigurations != null) {
