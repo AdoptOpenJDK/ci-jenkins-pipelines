@@ -274,7 +274,6 @@ class Build {
     */
     def runSmokeTests() {
         def additionalTestLabel = buildConfig.ADDITIONAL_TEST_LABEL
-
         try {
             context.println "Running smoke test"
             context.stage("smoke test") {
@@ -289,21 +288,19 @@ class Build {
                         context.jobDsl targets: templatePath, ignoreExisting: false, additionalParameters: jobParams
                     }
                 }
-               context.catchError {
-                    context.build job: jobName,
-                            propagate: false,
-                            parameters: [
+                context.build job: jobName,
+                                propagate: true,
+                                parameters: [
                                     context.string(name: 'UPSTREAM_JOB_NUMBER', value: "${env.BUILD_NUMBER}"),
                                     context.string(name: 'UPSTREAM_JOB_NAME', value: "${env.JOB_NAME}"),
                                     context.string(name: 'RELEASE_TAG', value: "${buildConfig.SCM_REF}"),
                                     context.string(name: 'LABEL_ADDITION', value: additionalTestLabel),
                                     context.string(name: 'KEEP_REPORTDIR', value: "${buildConfig.KEEP_TEST_REPORTDIR}"),
                                     context.string(name: 'ACTIVE_NODE_TIMEOUT', value: "${buildConfig.ACTIVE_NODE_TIMEOUT}")]
-                }
             }
         } catch (Exception e) {
-            context.println "Failed to execute test: ${e.message}"
-            throw new Exception("[ERROR] Smoke Tests failed indicating a problem with the build artifact. No further tests will run until Smoke test failures are fixed. ")
+            context.println "SmokeTest failed: ${e}"
+            throw new Exception("[ERROR] Smoke Tests failed unexpectedly. No further tests will run until Smoke test failures are fixed. ")
         }
     }
     /*
@@ -407,7 +404,7 @@ class Build {
                 def nodeFilter = "${buildConfig.TARGET_OS}"
 
                 if (buildConfig.TARGET_OS == "windows") {
-                    filter = "**/OpenJDK*_windows_*.zip"
+                    filter = "**/OpenJDK*_windows_*.zip"s
                     certificate = "C:\\openjdk\\windows.p12"
                     nodeFilter = "${nodeFilter}&&build&&win2012"
 
@@ -1414,7 +1411,7 @@ class Build {
                 if (enableTests) {
                     try {
                         runSmokeTests()
-                        if (buildConfig.TEST_LIST.size() > 0) {
+                        if ( buildConfig.TEST_LIST.size() > 0) {
                             def testStages = runAQATests()
                             context.parallel testStages
                         }
